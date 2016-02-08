@@ -6,13 +6,14 @@ use Symfony\Component\Security\Core\Exception\AuthenticationException;
 
 class LdapManagerUser implements LdapManagerUserInterface
 {
+
     private
-        $ldapConnection,
-        $username,
-        $password,
-        $params,
-        $ldapUser
-        ;
+            $ldapConnection,
+            $username,
+            $password,
+            $params,
+            $ldapUser
+    ;
 
     public function __construct(LdapConnectionInterface $conn)
     {
@@ -23,9 +24,9 @@ class LdapManagerUser implements LdapManagerUserInterface
     public function exists($username)
     {
         return (bool) $this
-            ->setUsername($username)
-            ->addLdapUser()
-            ;
+                        ->setUsername($username)
+                        ->addLdapUser()
+        ;
     }
 
     public function auth()
@@ -33,7 +34,7 @@ class LdapManagerUser implements LdapManagerUserInterface
         if (strlen($this->password) === 0) {
             return false;
         }
-        
+
         if (null === $this->ldapUser) {
             return ($this->bindByUsername() && $this->doPass());
         }
@@ -153,14 +154,14 @@ class LdapManagerUser implements LdapManagerUserInterface
             : '';
 
         $entries = $this->ldapConnection
-            ->search(array(
-                'base_dn' => $this->params['user']['base_dn'],
+                ->search(array(
+            'base_dn' => $this->params['user']['base_dn'],
                 'filter' => sprintf('(&%s(%s=%s))',
                                     $filter,
                                     $this->params['user']['name_attribute'],
                                     $this->ldapConnection->escape($this->username)
-                )
-            ));
+            )
+        ));
 
         if ($entries['count'] > 1) {
             throw new \RuntimeException("This search can only return a single user");
@@ -181,52 +182,46 @@ class LdapManagerUser implements LdapManagerUserInterface
             throw new \RuntimeException('Cannot assign LDAP roles before authenticating user against LDAP');
         }
 
-        $this->ldapUser['roles'] = array();
-
-        if (!isset($this->params['role'])) {
-            throw new \InvalidArgumentException("If you want to skip getting the roles, set config option imag_ldap:client:skip_roles to true");
+        $user = null;
+        $count = 0;
+        foreach ($this->params['users'] as $param) {
+            $filter = isset($param['filter']) ? $param['filter'] : '';
+            try {
+                $entries = $this->ldapConnection
+                        ->search(array(
+                    'base_dn' => $param['base_dn'],
+                    'filter' => sprintf('(&%s(%s=%s))', $filter, $param['name_attribute'], $this->ldapConnection->escape($this->username)
+                    )
+                ));
+            }
+            // if exception is throwed, test next entry in $params['users']
+            catch (ConnectionException $e) {
+                break;
+            }
+            $count += $entries['count'];
+            if ($entries['count'] === 1)
+                $user = $entries[0];
         }
-
-        $tab = array();
-
-        $filter = isset($this->params['role']['filter'])
-            ? $this->params['role']['filter']
-            : '';
-
-        $entries = $this->ldapConnection
-            ->search(array(
-                'base_dn'  => $this->params['role']['base_dn'],
-                'filter'   => sprintf('(&%s(%s=%s))',
-                                      $filter,
-                                      $this->params['role']['user_attribute'],
-                                      $this->ldapConnection->escape($this->getUserId())
-                ),
-                'attrs'    => array(
-                    $this->params['role']['name_attribute']
-                )
-            ));
-
-        for ($i = 0; $i < $entries['count']; $i++) {
-            array_push($tab, sprintf('ROLE_%s',
-                                     self::slugify($entries[$i][$this->params['role']['name_attribute']][0])
-            ));
+        if ($count > 1) {
+            throw new \RuntimeException("This search can only return a single user");
         }
-
-        $this->ldapUser['roles'] = $tab;
-
+        if ($count === 0) {
+            throw new UsernameNotFoundException(sprintf('Username "%s" doesn\'t exists', $this->username));
+        }
+        $this->ldapUser = $user;
         return $this;
     }
 
     private function bindByDn()
     {
         return $this->ldapConnection
-            ->bind($this->ldapUser['dn'], $this->password);
+                        ->bind($this->ldapUser['dn'], $this->password);
     }
 
     private function bindByUsername()
     {
         return $this->ldapConnection
-            ->bind($this->username, $this->password);
+                        ->bind($this->username, $this->password);
     }
 
     private static function slugify($role)
